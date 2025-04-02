@@ -19,7 +19,8 @@ import {
 } from "@mui/material";
 import { Box as CustomBox } from "../../DataViewer/Box";
 import { fontSize, palette } from "../../..";
-import { deleteItemInChartProp } from "../../../redux/ChartPoperties/ChartPropertiesActions";
+import { deleteItemInChartProp, toggleAxesEdited } from "../../../redux/ChartPoperties/ChartPropertiesActions";
+import { NotificationDialog } from "../../CommonFunctions/DialogComponents";
 
 const AddFunctionIcon = createSvgIcon(
   <svg
@@ -49,7 +50,8 @@ const SavedCalculationsHolder = ({
   chartProperties,
   editCalculationFunc,
   deleteCalculationFunc,
-  deleteItemFromChartFunc
+  deleteItemFromChartFunc,
+  toggleAxesEdit,
 }: {
   propKey: string;
   calculations: any;
@@ -60,6 +62,7 @@ const SavedCalculationsHolder = ({
   editCalculationFunc: any;
   deleteCalculationFunc: any;
   deleteItemFromChartFunc: any;
+  toggleAxesEdit: any;
 }) => {
 
   const realSelectedDatasetId = chartProperties?.properties[propKey]?.selectedDs?.id
@@ -70,6 +73,7 @@ const SavedCalculationsHolder = ({
       (calculation: any) => (calculation.datasetId === realSelectedDatasetId && calculation.isAggregated)
     );
   }, [calculations?.savedCalculations, realSelectedDatasetId]);
+  const currentCalculationSession = calculations?.properties[propKey]?.currentCalculationSession
 
   const handleCreateCalculation = () => {
     createCalculation(propKey, "Calculation 1", realSelectedDatasetId);
@@ -638,6 +642,14 @@ const SavedCalculationsHolder = ({
         overflow: "hidden",
       }}
     >
+      {
+        alert && <NotificationDialog
+          severity={alert.severity}
+          openAlert={alert}
+          onCloseAlert={() => setAlert(null)}
+          testMessage={alert.message}
+        />
+      }
       {showSavedCalculations &&
         <Box sx={{ display: "flex", height: "100%", width: "100%", flexDirection: "column", borderLeft: "2px solid rgba(224, 224, 224, 1)", transition: "transform 0.1s ease" }}>
           <Typography
@@ -676,10 +688,12 @@ const SavedCalculationsHolder = ({
               </Typography>
             ) : (
               renderBlocks.map((_block: any, index: number) => (
-                <Stack key={index} 
-                sx={{"&.MuiStack-root": {
-                  overflow: "hidden"
-                }}}>
+                <Stack key={index}
+                  sx={{
+                    "&.MuiStack-root": {
+                      overflow: "hidden"
+                    }
+                  }}>
                   {_block.map((calculation: any, idx: number) => {
 
                     let isCalculationPresentInChartAxes = false
@@ -688,7 +702,7 @@ const SavedCalculationsHolder = ({
                       [key: string]: {
                         binIndex: number,
                         fieldIndex: number
-                      }
+                      }[];
                     } = {}
 
                     const allPropKeys = Object.keys(chartProperties?.properties)
@@ -697,11 +711,14 @@ const SavedCalculationsHolder = ({
                       chartProperties?.properties[eachPropKey]?.chartAxes?.forEach((ax: any, axId: number) => {
                         ax?.fields?.forEach((field: any, fieldId: number) => {
                           if (field.SavedCalculationUUID) {
-                            informationForPropDeletion[eachPropKey] = {
-                              binIndex: axId,
-                              fieldIndex: fieldId
+                            if (!informationForPropDeletion[eachPropKey]) {
+                              informationForPropDeletion[eachPropKey] = [];
                             }
-                            isCalculationPresentInChartAxes = true
+                            informationForPropDeletion[eachPropKey].push({
+                              binIndex: axId,
+                              fieldIndex: fieldId,
+                            });
+                            isCalculationPresentInChartAxes = true;
                           }
                         })
                       })
@@ -735,14 +752,25 @@ const SavedCalculationsHolder = ({
                         isSavedCalculation={true}
                         colsOnly={true}
                         handleEditButton={() => {
+                          if (currentCalculationSession && currentCalculationSession.uuid) {
+                            setAlert({ severity: 'warning', message: 'Either save or close the current calculation before editing another calculation' })
+                            return
+                          }
                           editCalculationFunc(
                             propKey,
                             calculation.calculationInfo.calculatedFieldName
                           );
                         }}
                         propKey={propKey}
-                        deleteIfPresentInAxes={deleteItemFromChartFunc}
+                        deleteIfPresentInAxes={(propKeyForThisDeleteInfo: string, binIndexForThisPropKey: string, fieldIndexForThisPropKey: string) => {
+                          deleteItemFromChartFunc(propKeyForThisDeleteInfo, binIndexForThisPropKey, fieldIndexForThisPropKey)
+                          toggleAxesEdit(propKey, true)
+                        }}
                         handleDeleteButton={() => {
+                          if (currentCalculationSession && currentCalculationSession.uuid && calculation.calculationInfo.calculatedFieldName === currentCalculationSession.calculationInfo.calculatedFieldName) {
+                            setAlert({ severity: 'warning', message: 'Either save or close the current calculation before deleting the calculation' })
+                            return
+                          }
                           deleteCalculationFunc(
                             calculation.calculationInfo.calculatedFieldName,
                             propKey
@@ -887,7 +915,9 @@ const mapDispatchToProps = (dispatch: any) => {
       dispatch(editSavedCalculation(propKey, calculationFieldName)),
     deleteCalculationFunc: (calculationFieldName: string, propKey: string) =>
       dispatch(deleteSavedCalculation(calculationFieldName, propKey)),
-    deleteItemFromChartFunc: (propKey: string, binIndex: number, itemIndex: number) => dispatch(deleteItemInChartProp(propKey, binIndex, itemIndex))
+    deleteItemFromChartFunc: (propKey: string, binIndex: number, itemIndex: number) => dispatch(deleteItemInChartProp(propKey, binIndex, itemIndex)),
+    toggleAxesEdit: (propKey: string, didEdit: boolean) =>
+      dispatch(toggleAxesEdited(propKey, didEdit)),
   };
 };
 

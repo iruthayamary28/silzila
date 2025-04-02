@@ -28,8 +28,9 @@ import {
 import { addTableRecords } from "../../redux/SampleTableRecords/SampleTableRecordsActions";
 import FetchData from "../ServerCall/FetchData";
 import { serverEndPoint } from "../ServerCall/EnvironmentVariables";
-import { deleteItemInChartProp } from "../../redux/ChartPoperties/ChartPropertiesActions";
+import { deleteItemInChartProp, toggleAxesEdited } from "../../redux/ChartPoperties/ChartPropertiesActions";
 import { palette } from "../..";
+import { NotificationDialog } from "../CommonFunctions/DialogComponents";
 
 interface DisplayTableProps {
   dsId: string;
@@ -42,6 +43,7 @@ interface DisplayTableProps {
   addRecords: any;
   chartProperties: any;
   deleteItemFromChartFunc: any;
+  toggleAxesEdit: any;
 }
 
 const DisplayTable = ({
@@ -58,6 +60,8 @@ const DisplayTable = ({
   deleteCalculationFunc,
   deleteItemFromChartFunc,
   addRecords,
+  toggleAxesEdit,
+
 }: DisplayTableProps) => {
   const propKey = `${tabTileProps.selectedTabId}.${tabTileProps.selectedTileId}`;
   const selectedDataset = chartProperties?.properties[propKey]?.selectedDs;
@@ -66,6 +70,8 @@ const DisplayTable = ({
     chartProperties?.properties[propKey]?.selectedTable[selectedDataset?.id];
   const selectedTableInTablesForSelectedDataSets = tabTileProps?.tablesForSelectedDataSets[selectedDataset?.id]?.findIndex((table: any) => table.id === selectedTable)
   const flatFileId = tabTileProps?.tablesForSelectedDataSets[selectedDataset?.id][selectedTableInTablesForSelectedDataSets]?.flatFileId
+  const currentCalculationSession = calculations?.properties[propKey]?.currentCalculationSession
+  const [alert, setAlert] = useState<any>(null);
 
   var SampleRecords: any = tableRecords?.[dsId]?.[table];
 
@@ -239,12 +245,25 @@ const DisplayTable = ({
               colsOnly={false}
               isSavedCalculation={isSavedCalculation}
               handleEditButton={() => {
+                if (currentCalculationSession && currentCalculationSession.uuid) {
+                  setAlert({ severity: 'warning', message: 'Either save or close the current calculation before editing another calculation' })
+                  return
+                }
                 editCalculationFunc(propKey, columnsData[index].fieldname);
               }}
               informationForPropDeletion={informationForPropDeletion}
               isPresentInAxes={isCalculationPresentInChartAxes}
-              deleteIfPresentInAxes={deleteItemFromChartFunc}
+              deleteIfPresentInAxes={(propKeyForThisDeleteInfo: string, binIndexForThisPropKey: string, fieldIndexForThisPropKey: string) => {
+                deleteItemFromChartFunc(propKeyForThisDeleteInfo, binIndexForThisPropKey, fieldIndexForThisPropKey)
+                toggleAxesEdit(propKey, true)
+              }}
               handleDeleteButton={async () => {
+
+                if (currentCalculationSession && currentCalculationSession.uuid && key === currentCalculationSession.calculationInfo.calculatedFieldName) {
+                  setAlert({ severity: 'warning', message: 'Either save or close the current calculation before deleting another calculation' })
+                  return
+                }
+
                 // @ts-ignore
                 const workspaceId = selectedDataset.workSpaceId;
                 // @ts-ignore
@@ -321,7 +340,7 @@ const DisplayTable = ({
                     });
 
                     const headers = await FetchData({
-                      url: flatFileId ? `file-data-sample-records?flatfileId=${flatFileId}&datasetId=${datasetId}&tableId=${tableId}` :
+                      url: flatFileId ? `/file-data-column-details/${flatFileId}` :
                         `metadata-columns/${databaseId}?workspaceId=${workspaceId}&database=${database}&schema=${schema}&table=${tableName}`,
                       method: "post",
                       requestType: "withData",
@@ -355,7 +374,7 @@ const DisplayTable = ({
                     });
 
                     const headers = await FetchData({
-                      url: flatFileId ? `file-data-sample-records?flatfileId=${flatFileId}&datasetId=${datasetId}&tableId=${tableId}` :
+                      url: flatFileId ? `/file-data-column-details/${flatFileId}` :
                         `metadata-columns/${databaseId}?workspaceId=${workspaceId}&database=${database}&schema=${schema}&table=${tableName}`,
                       method: "post",
                       headers: {
@@ -469,6 +488,14 @@ const DisplayTable = ({
 
   return tabTileProps.columnsOnlyDisplay ? (
     <div className="showColumnsOnly">
+      {
+        alert && <NotificationDialog
+          severity={alert.severity}
+          openAlert={alert}
+          onCloseAlert={() => setAlert(null)}
+          testMessage={alert.message}
+        />
+      }
       <RenderButtons />
     </div>
   ) : (
@@ -582,6 +609,8 @@ const mapDispatchToProps = (dispatch: any) => {
       binIndex: number,
       itemIndex: number
     ) => dispatch(deleteItemInChartProp(propKey, binIndex, itemIndex)),
+    toggleAxesEdit: (propKey: string, didEdit: boolean) =>
+      dispatch(toggleAxesEdited(propKey, didEdit))
   };
 };
 

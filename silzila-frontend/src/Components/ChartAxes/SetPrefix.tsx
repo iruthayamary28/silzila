@@ -6,20 +6,22 @@ export const setPrefix = (
 	chartType: string,
 	geoLocation: string = "world"
 ) => {
+
 	if (!fieldData) {
 		return fieldData;
 	}
 
 	let data = JSON.parse(JSON.stringify(fieldData));
+
+	if (data.isCalculatedField && data.isAggregated) {
+		return data
+	}	
+
 	switch (data.dataType.toLowerCase()) {
 		case "integer":
 		case "decimal":
 
 			if (binName === "Measure" || binName === "X" || binName === "Y") {
-				if (data.isCalculatedField && data.isAggregated) {
-					data.agg = "agg"
-					break;
-				}
 				data.agg = "sum";
 			}
 			if (binName === "Location") {

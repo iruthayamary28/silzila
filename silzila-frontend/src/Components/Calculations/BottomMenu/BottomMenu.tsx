@@ -17,7 +17,7 @@ import FetchData from "../../ServerCall/FetchData";
 import { minMax } from "../constants";
 import { NotificationDialog } from "../../CommonFunctions/DialogComponents";
 import { getFlowTypeFromFunctionName } from "../utils";
-import { editChartPropItem, setSelectedTableInTile } from "../../../redux/ChartPoperties/ChartPropertiesActions";
+import { editChartPropItem, setSelectedTableInTile, toggleAxesEdited } from "../../../redux/ChartPoperties/ChartPropertiesActions";
 import { set } from "lodash";
 import { fonts, fontSize, palette } from "../../..";
 import { isNameAllowed } from "../../CommonFunctions/CommonFunctions";
@@ -36,20 +36,16 @@ const FlowList = ({
   addTableIdToCurrentCalculationSessionFunction,
   setTable,
   updateQueryParam,
-  chartProperties
+  chartProperties,
+  toggleAxesEdit
 }: any) => {
   const propKey = useMemo(
     () => `${tabTileProps?.selectedTabId}.${tabTileProps?.selectedTileId}`,
     [tabTileProps?.selectedTabId, tabTileProps?.selectedTileId]
   );
-  const flowList =
-    calculations.properties[propKey]?.currentCalculationSession?.calculationInfo
-      .flows;
   const [lastTestSuccess, setLastTestSuccess] = useState<boolean>(false);
-  let calculationInfo =
-    calculations.properties[propKey]?.currentCalculationSession?.calculationInfo;
-  const currentCalculationSession =
-    calculations.properties[propKey]?.currentCalculationSession;
+  let calculationInfo = calculations.properties[propKey]?.currentCalculationSession?.calculationInfo;
+  const currentCalculationSession = calculations.properties[propKey]?.currentCalculationSession;
   const calculationName = currentCalculationSession.name;
   const totalSavedCalculations = calculations?.savedCalculations?.length
   const activeFlowId = currentCalculationSession?.activeFlow
@@ -132,7 +128,7 @@ const FlowList = ({
 
       const tableMetaDataForSelectedDataset = sampleRecords.recordsColumnType[datasetId];
 
-      if (tableMetaDataForSelectedDataset[tableIdToPushInto].find((el: any) => el['columnName'].toLowerCase().split(" ").join("_").split("-").join("_") === calculationLocalName.toLowerCase().split(" ").join("_").split("-").join("_"))) {
+      if (tableMetaDataForSelectedDataset[tableIdToPushInto].find((el: any) => el['columnName'].toLowerCase().split(" ").join("_").split("-").join("_") === calculationLocalName.toLowerCase().split(" ").join("_").split("-").join("_")) && !currentCalculationSession.uuid) {
         if (alert) {
           setAlert(null)
         }
@@ -172,6 +168,32 @@ const FlowList = ({
       }
 
     }
+
+    const tableDetailsResponse = await FetchData({
+      requestType: "noData",
+      method: "GET",
+      url: `dataset/${datasetId}?workspaceId=${workSpaceId}`,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
+      },
+    });
+
+    let tableDetails;
+    let tableSchema;
+
+    if (tableDetailsResponse.status === true) {
+      tableDetails = await tableDetailsResponse.data;
+      tableSchema = tableDetails.dataSchema.tables;
+    } else {
+      if (alert) {
+        setAlert(null)
+        setAlert({ severity: 'warning', message: "Something went wrong." })
+      }
+      return;
+    }
+
+    const tableInfo = tableSchema.find((table: any) => table.id === tableIdToPushInto);
 
     const uuid = new ShortUniqueId({ length: 4 }).randomUUID();
 
@@ -248,12 +270,12 @@ const FlowList = ({
                 propKeysToUpdate[eachPropKey] = {
                   binIndex: axId,
                   fieldIndex: fieldId,
-                  fieldName: currentCalculationSession.calculationInfo.calculatedFieldName,
-                  displayName: 'agg of' + ' ' + currentCalculationSession.calculationInfo.calculatedFieldName,
+                  fieldName: calculationInfo.calculatedFieldName,
+                  displayName: calculationInfo.calculatedFieldName,
                   dataType: currentCalculationSession.calculationInfo.fields[Object.keys(currentCalculationSession.calculationInfo.fields)[0]].dataType,
-                  tableId: 'pos', // TODO: needs change, for now it should be fine as it doesn't really matter in case of aggregated calculation? we aren't storing it anywhere
+                  tableId: tableInfo?.id,
                   uId: field.uId,
-                  agg: 'sum', // keep it to any random thing it doesn't matter,
+                  agg: field.agg, // keep it to any random thing it doesn't matter,
                   SavedCalculationUUID: currentCalculationSession.uuid,
                   isTextRenamed: false
                 }
@@ -275,15 +297,17 @@ const FlowList = ({
               uId: propKeysToUpdate[propKey].uId,
               agg: propKeysToUpdate[propKey].agg,
               SavedCalculationUUID: propKeysToUpdate[propKey].SavedCalculationUUID,
-              isTextRenamed: propKeysToUpdate[propKey].isTextRenamed
+              isTextRenamed: propKeysToUpdate[propKey].isTextRenamed,
+              isCalculatedField: true,
+              isAggregated: true
             },
             'chartAxes'
           )
         }
 
-        console.log('update is one the way: ', propKeysToUpdate)
-
       }
+
+      toggleAxesEdit(propKey, true)
 
       saveCalculation(propKey, isCurrentCalculationPresentInAggregatedCalculations ? currentCalculationSession.uuid : uuid);
 
@@ -323,31 +347,7 @@ const FlowList = ({
 
     // TODO: the variables in request params need to be fetched dynamically
 
-    const tableDetailsResponse = await FetchData({
-      requestType: "noData",
-      method: "GET",
-      url: `dataset/${datasetId}?workspaceId=${workSpaceId}`,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
-      },
-    });
 
-    let tableDetails;
-    let tableSchema;
-
-    if (tableDetailsResponse.status === true) {
-      tableDetails = await tableDetailsResponse.data;
-      tableSchema = tableDetails.dataSchema.tables;
-    } else {
-      if (alert) {
-        setAlert(null)
-        setAlert({ severity: 'warning', message: "Something went wrong." })
-      }
-      return;
-    }
-
-    const tableInfo = tableSchema.find((table: any) => table.id === tableIdToPushInto);
 
     // Assuming that if flatfileId is present, then it is a flatfile otherwise it is a db
 
@@ -405,6 +405,8 @@ const FlowList = ({
         }
       } = {}
 
+      const flowsInCurrentCalculation = Object.keys(currentCalculationSession.calculationInfo.flows);
+
       for (const eachPropKey of allPropKeys) {
         chartProperties?.properties[eachPropKey]?.chartAxes?.forEach((ax: any, axId: number) => {
           ax?.fields?.forEach((field: any, fieldId: number) => {
@@ -412,9 +414,9 @@ const FlowList = ({
               propKeysToUpdate[eachPropKey] = {
                 binIndex: axId,
                 fieldIndex: fieldId,
-                fieldName: currentCalculationSession.calculationInfo.calculatedFieldName,
-                displayName: `${field.agg} of ${currentCalculationSession.calculationInfo.calculatedFieldName}`,
-                dataType: currentCalculationSession.calculationInfo.fields[Object.keys(currentCalculationSession.calculationInfo.fields)[0]].dataType,
+                fieldName: calculationInfo.calculatedFieldName,
+                displayName: calculationInfo.calculatedFieldName,
+                dataType: calculationInfo.fields[Object.keys(currentCalculationSession.calculationInfo.fields)[0]].dataType,
                 tableId: tableInfo.id,
                 uId: field.uId,
                 agg: field.agg,
@@ -439,11 +441,15 @@ const FlowList = ({
             uId: propKeysToUpdate[propKey].uId,
             agg: propKeysToUpdate[propKey].agg,
             SavedCalculationUUID: propKeysToUpdate[propKey].SavedCalculationUUID,
-            isTextRenamed: propKeysToUpdate[propKey].isTextRenamed
+            isTextRenamed: propKeysToUpdate[propKey].isTextRenamed,
+            isCalculatedField: true,
+            isAggregated: false
           },
           'chartAxes'
         )
       }
+
+      toggleAxesEdit(propKey, true)
 
       saveCalculation(propKey, isCurrentCalculationPresent ? currentCalculationSession.uuid : uuid);
 
@@ -1016,6 +1022,8 @@ const mapDispatchToProps = (dispatch: any) => {
     updateQueryParam: (propKey: string, binIndex: number, itemIndex: number, item: any, currentChartAxesName: string) =>
       dispatch(editChartPropItem("updateQuery", { propKey, binIndex, itemIndex, item, currentChartAxesName })
       ),
+    toggleAxesEdit: (propKey: string, didEdit: boolean) =>
+      dispatch(toggleAxesEdited(propKey, didEdit)),
   };
 };
 
