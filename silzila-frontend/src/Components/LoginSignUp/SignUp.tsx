@@ -185,6 +185,7 @@ const SignUp = () => {
 							outline:'none',
 						}}
 					/>
+					
 					<IconButton
 						aria-label="toggle password visibility"
 						sx={{
